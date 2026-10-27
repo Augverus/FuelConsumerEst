@@ -1,0 +1,181 @@
+import csv
+import os
+
+DATASET_FILE = "fuel_consumption_dataset.csv"
+
+
+def load_data(file_path):
+    """Read CSV file and parse rows into numeric dictionaries."""
+    if not os.path.exists(file_path):
+        print(f"Error: Dataset file '{file_path}' not found.")
+        return []
+
+    rows = []
+    with open(file_path, mode="r", encoding="utf-8") as f:
+        reader = csv.DictReader(f)
+        for row in reader:
+            rows.append(
+                {
+                    "car_model": row["car_model"].strip().lower(),
+                    "manufacture_year": float(row["manufacture_year"]),
+                    "mileage_km": float(row["mileage_km"]),
+                    "new_fuel": float(row["new_fuel_consumption_l_per_100km"]),
+                    "current_fuel": float(
+                        row["current_fuel_consumption_l_per_100km"]
+                    ),
+                }
+            )
+    return rows
+
+
+def calculate_mean(numbers):
+    """Calculate the arithmetic mean of a list of numbers."""
+    if not numbers:
+        return 0.0
+    return sum(numbers) / len(numbers)
+
+
+def train_simple_model(data):
+    """
+    Calculate the wear-and-tear degradation rate per kilometer:
+    Rate = (Total Fuel Consumption Increase) / (Total Mileage)
+    """
+    total_fuel_increase = 0.0
+    total_mileage = 0.0
+
+    for row in data:
+        increase = row["current_fuel"] - row["new_fuel"]
+        total_fuel_increase += increase
+        total_mileage += row["mileage_km"]
+
+    rate_per_km = (
+        total_fuel_increase / total_mileage if total_mileage > 0 else 0.0
+    )
+    return rate_per_km
+
+
+def predict_fuel_consumption(
+    car_model, year, mileage, new_fuel, rate_per_km, current_year=1404
+):
+    """
+    Predict fuel consumption using basic linear scaling:
+    Current Fuel = New Fuel + (Mileage * Rate) + (Age * Age Degradation)
+    """
+    age = max(0.0, current_year - year)
+
+    # Degradation from mileage
+    mileage_effect = mileage * rate_per_km
+
+    # Degradation from aging components (approx. 0.05 L/100km per year)
+    age_effect = age * 0.05
+
+    estimated_consumption = new_fuel + mileage_effect + age_effect
+    return estimated_consumption
+
+
+def main():
+    # 1. Load data
+    data = load_data(DATASET_FILE)
+    if not data:
+        return
+
+    # 2. Compute column means from dataset for fallback values
+    all_years = [row["manufacture_year"] for row in data]
+    all_mileages = [row["mileage_km"] for row in data]
+    all_new_fuels = [row["new_fuel"] for row in data]
+
+    mean_year = calculate_mean(all_years)
+    mean_mileage = calculate_mean(all_mileages)
+    mean_new_fuel = calculate_mean(all_new_fuels)
+
+    # 3. Train simple rate model
+    rate_per_km = train_simple_model(data)
+    valid_models = ["pars", "206", "207", "samand"]
+
+    print("=" * 55)
+    print("      CAR FUEL CONSUMPTION PREDICTOR (L/100km)     ")
+    print("=" * 55)
+    print("Note: Press [Enter] on numeric prompts to use dataset mean.\n")
+
+    # 1. Car Model (Mandatory)
+    while True:
+        model_input = (
+            input(f"Enter car model ({'/'.join(valid_models)}): ")
+            .strip()
+            .lower()
+        )
+        if model_input in valid_models:
+            break
+        print(f"  [!] Invalid model. Allowed choices are: {valid_models}")
+
+    # 2. Manufacture Year (Optional -> Mean)
+    raw_year = input(
+        f"Enter manufacture year [Shamsi] (Press Enter for mean {mean_year:.0f}): "
+    ).strip()
+    if raw_year == "":
+        year = mean_year
+        print(f"  --> Using dataset mean year: {year:.0f}")
+    else:
+        try:
+            year = float(raw_year)
+        except ValueError:
+            year = mean_year
+            print(
+                f"  [!] Invalid input. Using dataset mean year: {year:.0f}"
+            )
+
+    # 3. Mileage in KM (Optional -> Mean)
+    raw_mileage = input(
+        f"Enter mileage in km (Press Enter for mean {mean_mileage:,.0f}): "
+    ).strip()
+    if raw_mileage == "":
+        mileage = mean_mileage
+        print(f"  --> Using dataset mean mileage: {mileage:,.0f} km")
+    else:
+        try:
+            mileage = float(raw_mileage)
+        except ValueError:
+            mileage = mean_mileage
+            print(
+                f"  [!] Invalid input. Using dataset mean mileage: {mileage:,.0f} km"
+            )
+
+    # 4. New Car Fuel Consumption (Optional -> Mean)
+    raw_new_fuel = input(
+        f"Enter new-car baseline fuel consumption (Press Enter for mean {mean_new_fuel:.2f}): "
+    ).strip()
+    if raw_new_fuel == "":
+        new_fuel = mean_new_fuel
+        print(
+            f"  --> Using dataset mean baseline: {new_fuel:.2f} L/100km"
+        )
+    else:
+        try:
+            new_fuel = float(raw_new_fuel)
+        except ValueError:
+            new_fuel = mean_new_fuel
+            print(
+                f"  [!] Invalid input. Using dataset mean baseline: {new_fuel:.2f} L/100km"
+            )
+
+    # 4. Predict
+    prediction = predict_fuel_consumption(
+        model_input, year, mileage, new_fuel, rate_per_km
+    )
+
+    # 5. Output Summary
+    print("\n" + "-" * 55)
+    print("Vehicle Profile Summary:")
+    print(f"  • Model:                     {model_input.upper()}")
+    print(f"  • Manufacture Year:          {year:.0f}")
+    print(f"  • Mileage:                   {mileage:,.0f} km")
+    print(f"  • New Car Fuel Consumption:  {new_fuel:.2f} L/100km")
+    print("-" * 55)
+    print(
+        f"  ★ Estimated Current Fuel Consumption: {prediction:.2f} L/100km"
+    )
+    print("-" * 55)
+
+
+if __name__ == "__main__":
+    main()
